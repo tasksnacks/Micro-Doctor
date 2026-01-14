@@ -1,8 +1,13 @@
 const config = {
   type: Phaser.AUTO,
+  parent: "game-container",
   width: 450,
   height: 800,
   backgroundColor: "#000000",
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
   physics: {
     default: "arcade",
     arcade: { debug: false }
@@ -103,6 +108,14 @@ const dialogues = [
   }
 ];
 
+// ===== Touch controls (ADDED) =====
+let touchState = {
+  left: false, right: false, up: false, down: false,
+  med1Just: false, med2Just: false, combineJust: false,
+  nextJust: false
+};
+let touchUI = null; // container for buttons so we can hide/show if needed
+
 function preload() {
   this.load.image("player", "assets/player.png");
   this.load.image("bullet", "assets/laser.png");
@@ -184,11 +197,117 @@ function create() {
     space: Phaser.Input.Keyboard.KeyCodes.SPACE
   });
 
+  // ===== Touch UI setup (ADDED) =====
+  setupTouchControls.call(this);
+
   this.physics.add.overlap(bullets, blocks, (bul, bl) => hitBlock.call(this, bul, bl, false), null, this);
   this.physics.add.overlap(player, medicines, collectMed, null, this);
 
   updateDialogue.call(this);
   updateUI();
+}
+
+// ===== Touch UI helpers (ADDED) =====
+function setupTouchControls() {
+  const hasTouch = (this.sys.game.device.input && this.sys.game.device.input.touch) || this.input.manager && this.input.manager.pointersTotal > 1;
+  const isMobile = (this.sys.game.device.os && (this.sys.game.device.os.android || this.sys.game.device.os.iOS)) || hasTouch;
+
+  // Add a couple extra pointers for multitouch (movement + button)
+  this.input.addPointer(2);
+
+  // If not mobile/touch capable, don't create UI.
+  if (!isMobile) return;
+
+  // Container for all UI elements (fixed to camera)
+  touchUI = this.add.container(0, 0).setDepth(5000).setScrollFactor(0);
+
+  const makeBtn = (x, y, w, h, label, onDown, onUp) => {
+    const r = this.add.rectangle(x, y, w, h, 0x0a0a0a, 0.70)
+      .setStrokeStyle(2, 0x00ffcc, 0.9)
+      .setScrollFactor(0)
+      .setDepth(5001);
+
+    const t = this.add.text(x, y, label, {
+      fontSize: "14px",
+      fill: "#00ffcc",
+      fontStyle: "bold",
+      align: "center"
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(5002);
+
+    // Important: interactive on the rectangle only
+    r.setInteractive({ useHandCursor: false });
+
+    r.on("pointerdown", (p) => {
+      // Prevent UI press from becoming any future world input you add
+      if (p && p.event) p.event.stopPropagation?.();
+      r.setFillStyle(0x003333, 0.85);
+      onDown && onDown();
+    });
+
+    const upFn = () => {
+      r.setFillStyle(0x0a0a0a, 0.70);
+      onUp && onUp();
+    };
+
+    r.on("pointerup", upFn);
+    r.on("pointerout", upFn);
+    r.on("pointerupoutside", upFn);
+
+    touchUI.add([r, t]);
+    return r;
+  };
+
+  // Layout constants (bottom HUD)
+  const w = this.scale.gameSize.width;
+  const h = this.scale.gameSize.height;
+  const baseY = h - 70;     // vertically centered for bottom strip
+  const btn = 54;           // small buttons
+  const gap = 8;
+
+  // --- D-Pad (left side) ---
+  // Up
+  makeBtn(60, baseY - (btn + gap), btn, btn, "▲",
+    () => { touchState.up = true; },
+    () => { touchState.up = false; }
+  );
+  // Left
+  makeBtn(60 - (btn + gap), baseY, btn, btn, "◀",
+    () => { touchState.left = true; },
+    () => { touchState.left = false; }
+  );
+  // Right
+  makeBtn(60 + (btn + gap), baseY, btn, btn, "▶",
+    () => { touchState.right = true; },
+    () => { touchState.right = false; }
+  );
+  // Down
+  makeBtn(60, baseY + (btn + gap), btn, btn, "▼",
+    () => { touchState.down = true; },
+    () => { touchState.down = false; }
+  );
+
+  // --- Action buttons (right side) ---
+  makeBtn(w - 60 - (btn + gap), baseY - 30, btn, btn, "MED 1",
+    () => { touchState.med1Just = true; },
+    null
+  );
+  makeBtn(w - 60, baseY - 30, btn, btn, "MED 2",
+    () => { touchState.med2Just = true; },
+    null
+  );
+  makeBtn(w - 60, baseY + 35, (btn * 2) + gap, btn, "COMBINE",
+    () => { touchState.combineJust = true; },
+    null
+  );
+
+  // --- Dialogue / Start (center bottom) ---
+  makeBtn(w * 0.5, h - 25, 140, 38, "NEXT",
+    () => { touchState.nextJust = true; },
+    null
+  );
+
+  // Optional: slight transparency so it stays “retro HUD”
+  touchUI.setAlpha(0.9);
 }
 
 function updateDialogue() {
@@ -235,7 +354,10 @@ function startWaveTimer() {
 }
 
 function update(time) {
-  if (Phaser.Input.Keyboard.JustDown(this.keys.space)) {
+  // ===== Dialogue advance (keyboard OR touch NEXT) =====
+  const nextPressed = Phaser.Input.Keyboard.JustDown(this.keys.space) || touchState.nextJust;
+  if (nextPressed) {
+    touchState.nextJust = false; // consume edge
     if (!isGameActive && !bossMode) {
       dialogueIndex++;
       if (dialogueIndex < dialogues.length) updateDialogue.call(this);
@@ -243,7 +365,13 @@ function update(time) {
     }
   }
 
-  if (!isGameActive || transitioning) return;
+  if (!isGameActive || transitioning) {
+    // consume one-shot action presses even when paused/in dialogue
+    touchState.med1Just = false;
+    touchState.med2Just = false;
+    touchState.combineJust = false;
+    return;
+  }
 
   // Only restart if boss is STILL missing long after spawn time (not during hits)
   if (bossMode && (!boss || !boss.body)) {
@@ -255,15 +383,33 @@ function update(time) {
 
   if (bg.tilePositionY !== undefined) bg.tilePositionY -= 2;
 
+  // ===== Movement: keyboard + touch dpad (ADDED) =====
   player.setVelocity(0);
-  if (cursors.left.isDown) player.setVelocityX(-350);
-  else if (cursors.right.isDown) player.setVelocityX(350);
-  if (cursors.up.isDown) player.setVelocityY(-350);
-  else if (cursors.down.isDown) player.setVelocityY(350);
 
-  if (Phaser.Input.Keyboard.JustDown(this.keys.one)) useMedicine.call(this, 0);
-  if (Phaser.Input.Keyboard.JustDown(this.keys.two)) useMedicine.call(this, 1);
-  if (Phaser.Input.Keyboard.JustDown(this.keys.c)) combineMeds.call(this);
+  const leftDown  = (cursors.left && cursors.left.isDown) || touchState.left;
+  const rightDown = (cursors.right && cursors.right.isDown) || touchState.right;
+  const upDown    = (cursors.up && cursors.up.isDown) || touchState.up;
+  const downDown  = (cursors.down && cursors.down.isDown) || touchState.down;
+
+  if (leftDown) player.setVelocityX(-350);
+  else if (rightDown) player.setVelocityX(350);
+
+  if (upDown) player.setVelocityY(-350);
+  else if (downDown) player.setVelocityY(350);
+
+  // ===== Actions: keyboard + touch buttons (ADDED) =====
+  if (Phaser.Input.Keyboard.JustDown(this.keys.one) || touchState.med1Just) {
+    touchState.med1Just = false;
+    useMedicine.call(this, 0);
+  }
+  if (Phaser.Input.Keyboard.JustDown(this.keys.two) || touchState.med2Just) {
+    touchState.med2Just = false;
+    useMedicine.call(this, 1);
+  }
+  if (Phaser.Input.Keyboard.JustDown(this.keys.c) || touchState.combineJust) {
+    touchState.combineJust = false;
+    combineMeds.call(this);
+  }
 
   if (time > lastFired) {
     fireBullet.call(this);
@@ -497,6 +643,7 @@ function spawnWave() {
     medicines.create(Phaser.Math.Between(50, 400), -50, type).setScale(0.7).setVelocityY(220);
   }
 }
+
 function useMedicine(slot) {
   if (!inventory[slot]) return;
   const type = inventory[slot];
@@ -504,22 +651,18 @@ function useMedicine(slot) {
   // ===== BOSS MODE BEHAVIOR =====
   if (bossMode) {
     if (type === "antibiotic") {
-      // Antibiotic = damage buff (NOT direct boss damage)
-      setBulletDamage.call(this, 3, BOSS_DMG_BUFF_MS); // bullets do 3 dmg for 5s
+      setBulletDamage.call(this, 3, BOSS_DMG_BUFF_MS);
       flashMessage.call(this, "ANTIBIOTICS ACTIVE\nDamage Boost!", 700);
 
     } else if (type === "insulin") {
-      // Insulin = slow boss
-      setBossSpeedMul.call(this, 0.45, BOSS_SLOW_MS); // boss slows for 4.5s
+      setBossSpeedMul.call(this, 0.45, BOSS_SLOW_MS);
       flashMessage.call(this, "INSULIN DEPLOYED\nBoss Slowed!", 700);
 
     } else if (type === "adrenaline") {
-      // Adrenaline = faster fire
       setTempFireRate.call(this, 110, BOSS_FIRE_BUFF_MS);
       flashMessage.call(this, "ADRENALINE\nFire Rate Up!", 700);
 
     } else if (type === "nanoserum") {
-      // Optional: nano-serum = all-in-one (your choice)
       setBossSpeedMul.call(this, 0.6, 6500);
       setBulletDamage.call(this, 2, 6500);
       setTempFireRate.call(this, 85, 6500);
@@ -537,7 +680,7 @@ function useMedicine(slot) {
     return;
   }
 
-  // ===== NORMAL MODE (your original rules) =====
+  // ===== NORMAL MODE =====
   if (type === "antibiotic") {
     blocks.children.each(b => {
       if (b && b.active) {
@@ -574,7 +717,6 @@ function combineMeds() {
 
     const pair = [a, b].sort().join("+");
 
-    // combos affect boss fight only
     if (pair === ["adrenaline","antibiotic"].sort().join("+")) {
       setTempFireRate.call(this, 75, 6000);
       setBulletDamage.call(this, 4, 6000);
@@ -591,7 +733,6 @@ function combineMeds() {
       flashMessage.call(this, "COMBO: OVERCLOCK\nBoss Slow + Rapid Fire!", 900);
 
     } else {
-      // default combo = nano-serum style boost (safe fallback)
       setBossSpeedMul.call(this, 0.6, 5500);
       setBulletDamage.call(this, 2, 5500);
       setTempFireRate.call(this, 95, 5500);
@@ -602,7 +743,7 @@ function combineMeds() {
     return;
   }
 
-  // ===== NORMAL GAME COMBINE (your original) =====
+  // ===== NORMAL GAME COMBINE =====
   if (phase < 2) return;
   if (inventory.length < 2) return;
 
@@ -666,22 +807,19 @@ function startFinalBossBattle() {
   flashMessage.call(this, "⚠️ FINAL STAND\nVIRUS CORE DETECTED", 650);
 
   const bossKey = this.textures.exists("boss") ? "boss" : "fallback";
-  boss = this.physics.add.sprite(225, 200, bossKey).setScale(0.7); // Smaller boss
+  boss = this.physics.add.sprite(225, 200, bossKey).setScale(0.7);
   boss.setCollideWorldBounds(true);
   boss.body.allowGravity = false;
   boss.body.setBounce(0.6, 0.6);
 
-  
   if (boss.body) {
     boss.body.setSize(boss.displayWidth * 0.5, boss.displayHeight * 0.5, true);
   }
 
-  // HP SETUP
-  bossHP = 50;     // Virus Core Health
-  this.playerHP = 50; // Nano-Bot Health
+  bossHP = 50;
+  this.playerHP = 50;
   bossSpawnedAt = this.time.now;
 
-  // UI Setup
   if (playerHpText) playerHpText.destroy();
   playerHpText = this.add.text(20, 70, `BOT INTEGRITY: ${this.playerHP}`, {
     fontSize: "16px", fill: "#00ffcc", fontStyle: "bold"
@@ -692,25 +830,19 @@ function startFinalBossBattle() {
     fontSize: "20px", fill: "#ff66ff", fontStyle: "bold"
   }).setOrigin(0.5).setDepth(2000).setScrollFactor(0);
 
-  // BULLET -> BOSS OVERLAP 
   this.physics.add.overlap(bullets, boss, (b, bul) => {
-    // If bullet is already dead or being destroyed, ignore it
     if (!bul || !bul.active || bul.isDying) return;
 
-    // Mark bullet so it can't hit again
     bul.isDying = true;
-    bul.destroy(); 
+    bul.destroy();
 
     const now = this.time.now;
-    // Check hit cooldown (120ms gap between hits)
     if (now < bossHitCooldownUntil) return;
     bossHitCooldownUntil = now + BOSS_HIT_COOLDOWN_MS;
 
-    // Apply Damage
-   bossHP = Math.max(0, bossHP - bulletDamage);
+    bossHP = Math.max(0, bossHP - bulletDamage);
     if (bossHpText) bossHpText.setText(`VIRUS CORE: ${bossHP}`);
 
-    // Flicker Visual
     b.setTint(0xffffff);
     this.time.delayedCall(60, () => { if (b && b.active) b.clearTint(); });
 
@@ -719,14 +851,13 @@ function startFinalBossBattle() {
     }
   }, null, this);
 
-  // BOSS -> PLAYER OVERLAP
   bossPlayerOverlap = this.physics.add.overlap(player, boss, () => {
     const now = this.time.now;
     if (now < bossTouchCooldownUntil || playerShielded) return;
-    
-    bossTouchCooldownUntil = now + 1200; // 1.2s invincibility for player
+
+    bossTouchCooldownUntil = now + 1200;
     this.playerHP = Math.max(0, this.playerHP - 10);
-    
+
     if (playerHpText) playerHpText.setText(`BOT INTEGRITY: ${this.playerHP}`);
     this.cameras.main.shake(200, 0.02);
 
@@ -735,7 +866,6 @@ function startFinalBossBattle() {
     }
   }, null, this);
 
-  // Med drops during fight
   bossMedTimer = this.time.addEvent({
     delay: 2000, loop: true, callback: () => {
       const type = Phaser.Utils.Array.GetRandom(["insulin", "adrenaline", "antibiotic"]);
@@ -750,7 +880,7 @@ function startBossChargeAI() {
   if (!boss || !boss.body) return;
   if (bossChargeTimer) bossChargeTimer.remove(false);
 
-const dashSpeed = BOSS_BASE_DASH;
+  const dashSpeed = BOSS_BASE_DASH;
   const cooldown = 1200;
 
   bossChargeTimer = this.time.addEvent({
@@ -771,7 +901,7 @@ const dashSpeed = BOSS_BASE_DASH;
         const len = Math.max(1, Math.hypot(dx, dy));
 
         boss.body.velocity.x = (dx / len) * dashSpeed * bossSpeedMul;
-boss.body.velocity.y = (dy / len) * dashSpeed * bossSpeedMul;
+        boss.body.velocity.y = (dy / len) * dashSpeed * bossSpeedMul;
       });
     }
   });
@@ -784,10 +914,11 @@ function bossAttackUpdate() {
   const dy = player.y - boss.y;
   const len = Math.max(1, Math.hypot(dx, dy));
 
-const chaseSpeed = BOSS_BASE_CHASE * bossSpeedMul;
+  const chaseSpeed = BOSS_BASE_CHASE * bossSpeedMul;
   boss.body.velocity.x += (dx / len) * chaseSpeed * 0.016;
   boss.body.velocity.y += (dy / len) * chaseSpeed * 0.016;
 }
+
 function setBossSpeedMul(mul, durationMs) {
   bossSpeedMul = mul;
 
@@ -847,6 +978,7 @@ function setTempFireRate(rate, durationMs) {
     });
   }
 }
+
 function restartRun(message) {
   bossMode = false;
   destroyBossStuff.call(this);
