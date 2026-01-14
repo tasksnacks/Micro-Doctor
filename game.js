@@ -42,12 +42,12 @@ let bossHpText = null;
 let bossChargeTimer = null;
 let bossBulletOverlap = null;
 let bossPlayerOverlap = null;
-let bossSpawnedAt = 0; // when boss fight starts
-let bossHP = 0; // dedicated boss HP (do not rely on boss.health)
+let bossSpawnedAt = 0; 
+let bossHP = 0; 
 
 // Boss controls
-let bossInvulnUntil = 0;        // ignore hits until this time
-let bossHitCooldownUntil = 0;   // throttle hits (time-based)
+let bossInvulnUntil = 0;        
+let bossHitCooldownUntil = 0;   
 let bossMedTimer = null;
 const BOSS_HIT_COOLDOWN_MS = 120;
 let bossTouchCooldownUntil = 0;
@@ -70,17 +70,17 @@ const BOSS_SLOW_MS = 4500;
 const BOSS_DMG_BUFF_MS = 5000;
 const BOSS_FIRE_BUFF_MS = 5000;
 
-// Boss-fight UI line (so the top text doesn't become a mess)
+// Boss-fight UI line 
 let playerHpText = null;
 
 // ===== Shield =====
 let playerShielded = false;
 
-// ===== Cell speed (insulin) =====
+// ===== Cell speed  =====
 let cellSpeedMul = 1;
 let insulinTimer = null;
 
-// ===== Tuning =====
+
 const STAB_GAIN_ON_CURE = 2;
 const STAB_LOSS_ON_MISS = 3;
 const FINAL_STAND_TRIGGER = 7;
@@ -108,7 +108,7 @@ const dialogues = [
   }
 ];
 
-// ===== Touch controls (ADDED) =====
+// ===== Touch controls  =====
 let touchState = {
   left: false, right: false, up: false, down: false,
   axisX: 0,
@@ -236,11 +236,10 @@ function setupTouchControls() {
       align: "center"
     }).setOrigin(0.5).setScrollFactor(0).setDepth(5002);
 
-    // Important: interactive on the rectangle only
+    
     r.setInteractive({ useHandCursor: false });
 
     r.on("pointerdown", (p) => {
-      // Prevent UI press from becoming any future world input you add
       if (p && p.event) p.event.stopPropagation?.();
       r.setFillStyle(0x003333, 0.85);
       onDown && onDown();
@@ -262,11 +261,11 @@ function setupTouchControls() {
   // Layout constants (bottom HUD)
   const w = this.scale.gameSize.width;
   const h = this.scale.gameSize.height;
-  const baseY = h - 70;     // vertically centered for bottom strip
-  const btn = 54;           // small buttons
+  const baseY = h - 70;     
+  const btn = 54;           
   const gap = 8;
 
-  // --- Virtual Joystick (left side) ---
+  // --- Virtual Joystick  ---
   // Large touch area so the player doesn't need to lift their thumb.
   const joyBaseR = 60;
   const joyKnobR = 26;
@@ -284,9 +283,7 @@ function setupTouchControls() {
     .setScrollFactor(0)
     .setDepth(5002);
 
-  // Make the BASE the interactive region (big target). Knob is purely visual.
-  // NOTE: For Arc/Circle objects, Phaser's default hit area matches the radius.
-  // Using a custom Circle hit-area here breaks because hit areas are in LOCAL space.
+  
   joyBase.setInteractive();
 
   let joyPointerId = null;
@@ -304,11 +301,10 @@ function setupTouchControls() {
     joyKnob.x = joyX + nx * clamped;
     joyKnob.y = joyY + ny * clamped;
 
-    // Normalized axes in [-1..1]
+
     touchState.axisX = (nx * clamped) / joyMax;
     touchState.axisY = (ny * clamped) / joyMax;
 
-    // Maintain your boolean flags too (for minimal downstream changes)
     const dead = 0.22;
     touchState.left  = touchState.axisX < -dead;
     touchState.right = touchState.axisX >  dead;
@@ -332,7 +328,6 @@ function setupTouchControls() {
     setJoyFromPointer(p);
   });
 
-  // Track movement globally so thumb can slide off the base without losing control.
   this.input.on("pointermove", (p) => {
     if (joyPointerId === null) return;
     if (p.id !== joyPointerId) return;
@@ -373,7 +368,6 @@ function setupTouchControls() {
     null
   );
 
-  // Optional: slight transparency so it stays “retro HUD”
   touchUI.setAlpha(0.9);
 }
 
@@ -421,7 +415,6 @@ function startWaveTimer() {
 }
 
 function update(time) {
-  // ===== Dialogue advance (keyboard OR touch NEXT) =====
   const nextPressed = Phaser.Input.Keyboard.JustDown(this.keys.space) || touchState.nextJust;
   if (nextPressed) {
     touchState.nextJust = false; // consume edge
@@ -450,7 +443,6 @@ function update(time) {
 
   if (bg.tilePositionY !== undefined) bg.tilePositionY -= 2;
 
-  // ===== Movement: keyboard + touch dpad/joystick (ADDED) =====
   player.setVelocity(0);
 
   const leftDown  = (cursors.left && cursors.left.isDown)  || touchState.left;
@@ -458,7 +450,6 @@ function update(time) {
   const upDown    = (cursors.up && cursors.up.isDown)    || touchState.up;
   const downDown  = (cursors.down && cursors.down.isDown)  || touchState.down;
 
-  // Analog joystick (if in use) takes precedence for smoother control.
   const useAnalog = Math.abs(touchState.axisX) > 0.01 || Math.abs(touchState.axisY) > 0.01;
   if (useAnalog) {
     const maxSpeed = 350;
@@ -472,7 +463,7 @@ function update(time) {
     else if (downDown) player.setVelocityY(350);
   }
 
-  // ===== Actions: keyboard + touch buttons (ADDED) =====
+  // ===== Actions: keyboard + touch buttons ) =====
   if (Phaser.Input.Keyboard.JustDown(this.keys.one) || touchState.med1Just) {
     touchState.med1Just = false;
     useMedicine.call(this, 0);
@@ -688,21 +679,18 @@ function hitBlock(bullet, block, isWipe) {
 }
 
 function clearEnemiesAndTexts() {
-  // Destroys the text labels attached to cells
   blocks.children.each(b => { 
       if (b && b.text) {
           b.text.destroy(); 
           b.text = null;
       }
   });
-  // Clears the cell sprites
   blocks.clear(true, true);
 }
 
 function spawnWave() {
   if (!isGameActive || transitioning) return;
 
-  // During boss fight we do NOT spawn red cells here (boss drops meds via bossMedTimer)
   if (bossMode) return;
 
   const p = PHASES[phase];
@@ -1124,7 +1112,6 @@ function flashMessage(text, ms) {
   });
 }
 
-// You lose the whole game only if stability hits 0 before boss
 function endGame() {
   isGameActive = false;
   destroyBossStuff.call(this);
