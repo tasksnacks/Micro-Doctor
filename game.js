@@ -285,13 +285,15 @@ function setupTouchControls() {
     .setDepth(5002);
 
   // Make the BASE the interactive region (big target). Knob is purely visual.
-  joyBase.setInteractive(new Phaser.Geom.Circle(joyX, joyY, joyBaseR), Phaser.Geom.Circle.Contains);
+  // NOTE: For Arc/Circle objects, Phaser's default hit area matches the radius.
+  // Using a custom Circle hit-area here breaks because hit areas are in LOCAL space.
+  joyBase.setInteractive();
 
   let joyPointerId = null;
 
   const setJoyFromPointer = (p) => {
-    const dx = p.x - joyX;
-    const dy = p.y - joyY;
+    const dx = p.worldX - joyX;
+    const dy = p.worldY - joyY;
     const len = Math.max(1, Math.hypot(dx, dy));
 
     // Clamp knob travel
