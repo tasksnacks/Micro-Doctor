@@ -1,9 +1,27 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        touch-action: none; /* prevent browser gestures stealing touches */
+      }
+      canvas {
+        display: block;
+        margin: 0 auto;
+      }
+    </style>
 </head>
 <body>
+    <div id="game-container"></div>
     <script src="game.js"></script>
 </body>
 </html>
