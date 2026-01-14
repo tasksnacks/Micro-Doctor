@@ -111,6 +111,8 @@ const dialogues = [
 // ===== Touch controls (ADDED) =====
 let touchState = {
   left: false, right: false, up: false, down: false,
+  axisX: 0,
+  axisY: 0,
   med1Just: false, med2Just: false, combineJust: false,
   nextJust: false
 };
@@ -264,27 +266,90 @@ function setupTouchControls() {
   const btn = 54;           // small buttons
   const gap = 8;
 
-  // --- D-Pad (left side) ---
-  // Up
-  makeBtn(60, baseY - (btn + gap), btn, btn, "▲",
-    () => { touchState.up = true; },
-    () => { touchState.up = false; }
-  );
-  // Left
-  makeBtn(60 - (btn + gap), baseY, btn, btn, "◀",
-    () => { touchState.left = true; },
-    () => { touchState.left = false; }
-  );
-  // Right
-  makeBtn(60 + (btn + gap), baseY, btn, btn, "▶",
-    () => { touchState.right = true; },
-    () => { touchState.right = false; }
-  );
-  // Down
-  makeBtn(60, baseY + (btn + gap), btn, btn, "▼",
-    () => { touchState.down = true; },
-    () => { touchState.down = false; }
-  );
+  // --- Virtual Joystick (left side) ---
+  // Large touch area so the player doesn't need to lift their thumb.
+  const joyBaseR = 60;
+  const joyKnobR = 26;
+  const joyMax = 44; // max knob travel
+  const joyX = 90;
+  const joyY = baseY + 10;
+
+  const joyBase = this.add.circle(joyX, joyY, joyBaseR, 0x0a0a0a, 0.55)
+    .setStrokeStyle(2, 0x00ffcc, 0.7)
+    .setScrollFactor(0)
+    .setDepth(5001);
+
+  const joyKnob = this.add.circle(joyX, joyY, joyKnobR, 0x003333, 0.85)
+    .setStrokeStyle(2, 0x00ffcc, 0.9)
+    .setScrollFactor(0)
+    .setDepth(5002);
+
+  // Make the BASE the interactive region (big target). Knob is purely visual.
+  joyBase.setInteractive(new Phaser.Geom.Circle(joyX, joyY, joyBaseR), Phaser.Geom.Circle.Contains);
+
+  let joyPointerId = null;
+
+  const setJoyFromPointer = (p) => {
+    const dx = p.x - joyX;
+    const dy = p.y - joyY;
+    const len = Math.max(1, Math.hypot(dx, dy));
+
+    // Clamp knob travel
+    const clamped = Math.min(joyMax, len);
+    const nx = dx / len;
+    const ny = dy / len;
+
+    joyKnob.x = joyX + nx * clamped;
+    joyKnob.y = joyY + ny * clamped;
+
+    // Normalized axes in [-1..1]
+    touchState.axisX = (nx * clamped) / joyMax;
+    touchState.axisY = (ny * clamped) / joyMax;
+
+    // Maintain your boolean flags too (for minimal downstream changes)
+    const dead = 0.22;
+    touchState.left  = touchState.axisX < -dead;
+    touchState.right = touchState.axisX >  dead;
+    touchState.up    = touchState.axisY < -dead;
+    touchState.down  = touchState.axisY >  dead;
+  };
+
+  const resetJoy = () => {
+    joyKnob.x = joyX;
+    joyKnob.y = joyY;
+    joyPointerId = null;
+
+    touchState.axisX = 0;
+    touchState.axisY = 0;
+    touchState.left = touchState.right = touchState.up = touchState.down = false;
+  };
+
+  joyBase.on("pointerdown", (p) => {
+    if (p && p.event) p.event.stopPropagation?.();
+    joyPointerId = p.id;
+    setJoyFromPointer(p);
+  });
+
+  // Track movement globally so thumb can slide off the base without losing control.
+  this.input.on("pointermove", (p) => {
+    if (joyPointerId === null) return;
+    if (p.id !== joyPointerId) return;
+    setJoyFromPointer(p);
+  });
+
+  this.input.on("pointerup", (p) => {
+    if (joyPointerId === null) return;
+    if (p.id !== joyPointerId) return;
+    resetJoy();
+  });
+
+  this.input.on("pointerupoutside", (p) => {
+    if (joyPointerId === null) return;
+    if (p.id !== joyPointerId) return;
+    resetJoy();
+  });
+
+  touchUI.add([joyBase, joyKnob]);
 
   // --- Action buttons (right side) ---
   makeBtn(w - 60 - (btn + gap), baseY - 30, btn, btn, "MED 1",
@@ -383,19 +448,27 @@ function update(time) {
 
   if (bg.tilePositionY !== undefined) bg.tilePositionY -= 2;
 
-  // ===== Movement: keyboard + touch dpad (ADDED) =====
+  // ===== Movement: keyboard + touch dpad/joystick (ADDED) =====
   player.setVelocity(0);
 
-  const leftDown  = (cursors.left && cursors.left.isDown) || touchState.left;
+  const leftDown  = (cursors.left && cursors.left.isDown)  || touchState.left;
   const rightDown = (cursors.right && cursors.right.isDown) || touchState.right;
-  const upDown    = (cursors.up && cursors.up.isDown) || touchState.up;
-  const downDown  = (cursors.down && cursors.down.isDown) || touchState.down;
+  const upDown    = (cursors.up && cursors.up.isDown)    || touchState.up;
+  const downDown  = (cursors.down && cursors.down.isDown)  || touchState.down;
 
-  if (leftDown) player.setVelocityX(-350);
-  else if (rightDown) player.setVelocityX(350);
+  // Analog joystick (if in use) takes precedence for smoother control.
+  const useAnalog = Math.abs(touchState.axisX) > 0.01 || Math.abs(touchState.axisY) > 0.01;
+  if (useAnalog) {
+    const maxSpeed = 350;
+    player.setVelocityX(touchState.axisX * maxSpeed);
+    player.setVelocityY(touchState.axisY * maxSpeed);
+  } else {
+    if (leftDown) player.setVelocityX(-350);
+    else if (rightDown) player.setVelocityX(350);
 
-  if (upDown) player.setVelocityY(-350);
-  else if (downDown) player.setVelocityY(350);
+    if (upDown) player.setVelocityY(-350);
+    else if (downDown) player.setVelocityY(350);
+  }
 
   // ===== Actions: keyboard + touch buttons (ADDED) =====
   if (Phaser.Input.Keyboard.JustDown(this.keys.one) || touchState.med1Just) {
